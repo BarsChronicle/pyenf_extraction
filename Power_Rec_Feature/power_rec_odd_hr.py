@@ -51,10 +51,12 @@ def main():
                 break
 
     time_until_record = 60 - UTC_timestamp.minute
+    if (UTC_timestamp.hour % 2 == 1):
+        time_until_record += 60
     # Sleep some time, don't constantly use CPU resource for counting secs
     if (time_until_record > 10): # when there are more than 5 minutes until recording session
-        print(f'Sleep {time_until_record-10} secs')
-        time.sleep(time_until_record - 10)
+        print(f'Sleep {(time_until_record-10)*60} secs')
+        time.sleep((time_until_record - 10)*60)
         restart()
         
     start_time = time.time()

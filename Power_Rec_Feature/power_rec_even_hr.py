@@ -51,6 +51,8 @@ def main():
                 break
     
     time_until_record = 60 - UTC_timestamp.minute
+    if (UTC_timestamp.hour % 2 == 0): # Next hour is odd, sleep over the odd hour block
+        time_until_record += 60
     # Sleep some time, don't constantly use CPU resource for counting secs
     if (time_until_record > 10): # when there are more than 5 minutes until recording session
         print(f'Sleep {(time_until_record-10)*60} secs')
