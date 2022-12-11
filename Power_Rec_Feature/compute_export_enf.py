@@ -17,7 +17,7 @@ CLIENT_SECRET_FILE = 'credentials.json'
 API_NAME = 'drive'
 API_VERSION = 'v3'
 SCOPES = ['https://www.googleapis.com/auth/drive']
-folder_database_id = '1Gy56rFFLFRqMoshJUGCLPOYAjeJwhNzN' #upload to database folder
+folder_database_id = '1iAwz3R8AY3rn6r6lruN_tYfh_7cYjjD5' #upload to database folder
 
 def compute_ENF(filepath, duration):
     #parameters for the STFT algorithm
@@ -160,7 +160,7 @@ def main():
 
         if (not list_audio_files): 
             print('Folder empty')
-            time.sleep(5400) # sleep for some time
+            time.sleep(3600) # sleep for some time
             continue
         rm_ready = []
         for filename in list_audio_files: # compute ENF in every file
