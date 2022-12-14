@@ -12,10 +12,8 @@ downsample_factor = 5
 def power_rec(fs, duration, path): #buffer audio
     print(f"Enter recording: {duration} seconds")
     sd.default.device = 11
-    sd.default.device = 11
     buf_recording = sd.rec(int(duration * fs), samplerate=fs, channels=1) # buffer for the duration
     sd.wait()
-    sf.write(folder_audio+path+".wav", data=buf_recording, samplerate=fs)
 
     buf_recording = buf_recording[::downsample_factor] # downsample by Fs by a factor
     sr = int(fs/downsample_factor)
