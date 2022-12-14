@@ -113,12 +113,17 @@ def upload_file(service, folder_id, file_name):
 def scan_folders(service, target, file_name):
     query = f"parents = '{folder_database_id}'" # folder (in URL) to upload
 
-    response = service.files().list(q=query, 
-                                    includeItemsFromAllDrives=True,
-                                    supportsAllDrives=True
-                                    ).execute()
-
-    files = response.get('files')
+    while(True):
+        try:
+    	    response = service.files().list(q=query, 
+            	    	                    includeItemsFromAllDrives=True,
+                        	            supportsAllDrives=True
+                                	    ).execute()
+        except Exception:
+            pass
+        else:
+            files = response.get('files')
+            break
 
     df = pd.DataFrame(files)
     df_id = df.get("id")
