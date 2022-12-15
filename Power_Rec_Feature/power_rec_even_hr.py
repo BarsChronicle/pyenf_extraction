@@ -7,18 +7,18 @@ import sys
 import os
 
 folder_audio = "Power_Recordings/"
-downsample_factor = 5
+#downsample_factor = 5
 
 def power_rec(fs, duration, path): #buffer audio
     print(f"Enter recording: {duration} seconds")
-    sd.default.device = 11
+    #sd.default.device = 11
     buf_recording = sd.rec(int(duration * fs), samplerate=fs, channels=1) # buffer for the duration
     sd.wait()
 
-    buf_recording = buf_recording[::downsample_factor] # downsample by Fs by a factor
-    sr = int(fs/downsample_factor)
+    #buf_recording = buf_recording[::downsample_factor] # downsample by Fs by a factor
+    #sr = int(fs/downsample_factor)
 
-    sf.write(folder_audio+path+".wav", data=buf_recording, samplerate=sr)
+    sf.write(folder_audio+path+".wav", data=buf_recording, samplerate=fs)
     print("Exit recording")
 
 def restart():
@@ -31,7 +31,7 @@ def main():
     #parameters for the STFT algorithm
     dur_minute = 60
     duration = (60*dur_minute) + 10
-    fs = 44100
+    fs = 1000
 
     ntpc = ntplib.NTPClient()
     host = 'pool.ntp.org'

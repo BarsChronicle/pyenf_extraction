@@ -143,7 +143,7 @@ def scan_folders(service, target, file_name):
         pass
            
     if create_folder_flag == 0:    # no ->> create folder
-        new_folder_id = create_folder(service, folder_database_id, dev + 'Power_ENF_'+target)
+        new_folder_id = create_folder(service, folder_database_id, dev + '_Power_ENF_'+target)
         upload_file(service,new_folder_id, file_name)
 
 def remove_file(filepath):
