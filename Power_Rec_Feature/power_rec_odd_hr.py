@@ -26,7 +26,7 @@ def restart():
     print("sys executable: ", sys.executable)
     print("Restart now!")
     os.execv(sys.executable, ['python'] + sys.argv)
-
+    
 def main():
     #parameters for the STFT algorithm
     dur_minute = 60
@@ -47,37 +47,40 @@ def main():
             print(f'Ntp_Exception thrown, Last:{datetime.datetime.utcfromtimestamp(UTC_ref)}')
         else:
             UTC_timestamp = datetime.datetime.utcfromtimestamp(UTC_ref)
-            if (UTC_timestamp.microsecond < 10000): # ensure time isn't too close to next sec
-                print(f'Synchronize at: {UTC_timestamp}')
-                break
-
+            #print(f'Synchronize at: {UTC_timestamp}')
+            break
+    
     time_until_record = 60 - UTC_timestamp.minute
-    if (UTC_timestamp.hour % 2 == 1):
+    time_offset = 3
+    odd = 1
+
+    if (UTC_timestamp.hour % 2 == odd): # Next hour is even, sleep over the odd hour block
         time_until_record += 60
     # Sleep some time, don't constantly use CPU resource for counting secs
-    if (time_until_record > 10): # when there are more than 5 minutes until recording session
-        print(f'Sleep {(time_until_record-10)*60} secs')
-        time.sleep((time_until_record - 10)*60)
+    if (time_until_record > time_offset): # when there are more than 3 minutes until recording session
+        print(f'Sleep {(time_until_record - time_offset)*60} secs')
+        time.sleep((time_until_record - time_offset)*60)
         restart()
-        
+    
     start_time = time.time()
+
     ## Offset to synchronized timestamp
     while(True): 
         end_time = time.time()
 
-        if (int(end_time - start_time) >= 1): # count seconds to increment synchronized UTC timestamp
+        if (end_time - start_time >= .01): # count seconds to increment synchronized UTC timestamp
             UTC_ref = UTC_ref + (time.time() - start_time)
             start_time = time.time() #reset start time
             UTC_timestamp = datetime.datetime.utcfromtimestamp(UTC_ref)
             print(f'Sec: {UTC_timestamp.second} ->>>>>>>>> {UTC_timestamp}')
         
-        if (UTC_timestamp.hour % 2 == 1 and UTC_timestamp.minute == 0 and UTC_timestamp.second == 0): # Fresh hour, start recording
+        if (UTC_timestamp.hour % 2 == odd and UTC_timestamp.minute == 0 and UTC_timestamp.second == 0): # Fresh hour, start recording
             path = UTC_timestamp.strftime('%Y_%m_%d_%H_%M_%S')
             print(f'Recording Time: {UTC_timestamp}')
             power_rec(fs,duration, path)
             break #need to go back to 1st while loop somehow maybe nested loop, os.execv?
-    
-    restart()     
+
+    restart()         
 
 if __name__ == '__main__':
     main()
