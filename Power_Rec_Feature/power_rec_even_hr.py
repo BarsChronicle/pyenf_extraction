@@ -38,17 +38,15 @@ def main():
     #host = '1.us.pool.ntp.org'
     UTC_ref = time.time()
     
-    ## Synchronize with NTP
-    while(True): 
-        try:
-            UTC_ref = ntpc.request(host).tx_time
+    # Synchronize with NTP
+    try:
+        UTC_ref = ntpc.request(host).tx_time
 
-        except ntplib.NTPException:
-            print(f'Ntp_Exception thrown, Last:{datetime.datetime.utcfromtimestamp(UTC_ref)}')
-        else:
-            UTC_timestamp = datetime.datetime.utcfromtimestamp(UTC_ref)
-            #print(f'Synchronize at: {UTC_timestamp}')
-            break
+    except ntplib.NTPException:
+        restart()
+    else:
+        UTC_timestamp = datetime.datetime.utcfromtimestamp(UTC_ref)
+        #print(f'Synchronize at: {UTC_timestamp}')
     
     time_until_record = 60 - UTC_timestamp.minute
     time_offset = 3
