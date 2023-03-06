@@ -1,13 +1,15 @@
-import ntplib
-import datetime
-import time
-import concurrent.futures
 import sounddevice as sd
 import numpy as np
+import time
+import datetime
+import threading
 import pyenf
+import ntplib
 
-def proc1_estimate_ENF(enf_signal, fs, nfft, frame_size, overlap):
-    #print("Enter estimate thread")
+ENF_vector = []
+buffer = []
+
+def estimate_ENF(enf_signal, fs, nfft, frame_size, overlap):
     enf_signal_object = pyenf.pyENF(signal0=enf_signal, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
                                     strip_index=0, frame_size_secs=frame_size, nfft=nfft, overlap_amount_secs=overlap)
     enf_spectro_strip, enf_frequency_support = enf_signal_object.compute_spectrogam_strips()
@@ -15,50 +17,38 @@ def proc1_estimate_ENF(enf_signal, fs, nfft, frame_size, overlap):
     enf_OurStripCell, enf_initial_frequency = enf_signal_object.compute_combined_spectrum(enf_spectro_strip,
                                                                                           enf_weights,
                                                                                           enf_frequency_support)
-    estimated_ENF = enf_signal_object.compute_ENF_from_combined_strip(enf_OurStripCell, enf_initial_frequency)
-    estimated_ENF = np.array(estimated_ENF).T.flatten()
-    return estimated_ENF
-    #print("Exit estimate thread")
+    ENF = enf_signal_object.compute_ENF_from_combined_strip(enf_OurStripCell, enf_initial_frequency)
+    ENF = np.array(ENF).T.flatten()
+    return ENF
 
-def proc2_buffer_next(fs, duration): #buffer audio
-    print(f"Enter buffer thread: {duration} seconds")
-    sd.default.device = 1
-    buf_recording = sd.rec(int(duration * fs), samplerate=fs, channels=1) # buffer 5 seconds
+def init_rec(fs, duration, device_name): #buffer audio
+    print(f"Enter recording: {duration} seconds")
+    global buffer
+    sd.default.device = device_name
+    buf_recording = sd.rec(int(duration * fs), samplerate=fs, channels=1) # buffer for the duration
 
     sd.wait()
-    buf_recording = np.array(buf_recording).T.flatten() #resize to 1-D row vector
-    return buf_recording 
-    #print("Exit buffer thread")
+    buf_recording = np.array(buf_recording).T.flatten() #resize to 1-D row vector 
+    buffer = buf_recording
 
 def write_data(csv_filename, data): # write data to csv file
     counter = 0
+    #folderpath = "Junk_Data/"
     with open(csv_filename,'w') as file:
         for item in data:
             x = str(counter)+","+str(item)+"\n" # Counter, ENF value
             file.write(x)
             counter += 1
 
-def main():
-    buf_recording = [] #return values from threads
-    estimated_ENF = []
-
-    #parameters for the STFT algorithm
-    init_duration = 62
-    duration = 6
-    fs = 1000 # downsampling frequency
-    nfft = 8192
-    frame_size = 2  # change it to 6 for videos with large length recording
-    overlap = 0
-    
-    # parameters for time sync
-    UTC_hour = 2
-    UTC_min = 38
-    UTC_sec = 0
+def sync_wait():
     ntpc = ntplib.NTPClient()
     host = 'pool.ntp.org'
-    #host = '1.us.pool.ntp.org'
     UTC_ref = time.time()
     
+    UTC_hour = 7
+    UTC_min = 0
+    UTC_sec = 0
+
     ## Synchronize with NTP
     while(True): 
         try:
@@ -83,45 +73,63 @@ def main():
             UTC_timestamp = datetime.datetime.utcfromtimestamp(UTC_ref)
             print(f'Sec: {UTC_timestamp.second} ->>>>>>>>> {UTC_timestamp}')
         
-        if (UTC_timestamp.hour == UTC_hour and UTC_timestamp.minute == UTC_min and UTC_timestamp.second == UTC_sec): # set specific hr,min,sec to start recording
-            break 
+        if (UTC_timestamp.minute == UTC_min and UTC_timestamp.second == UTC_sec):
+            break
+
+def callback(indata, frames, time, status): # callback function to add recorded audio to a buffer and process that buffer
+    global buffer
+    buffer = np.append(buffer,indata.flatten()) # add new recording to buffer
+
+    if len(buffer) > 20000: # estimate from 20 secs recording
+        buffer = buffer[6000:] # chop off first 6 secs from previous buffer
+        flag = 1
+    else: # 1st buffer
+        flag = 0
+
+    #print(f'size: {len(buffer)} buf1: {buffer}')
+    threading.Thread(target=process_recording,args=(buffer,flag)).start() # leave processing to thread
+
+def process_recording(buffer,flag):  
+    global ENF_vector
+    fs = 1000
+    nfft = 8192
+    frame_size = 2
+    overlap = 0
+    ENF = estimate_ENF(buffer, fs, nfft, frame_size, overlap)
     
-    print("Started Recording: ")
-    start = time.perf_counter()
+    # Following configurations only for frame_size=2
+    real_data_lim = -3 
+    if flag == 1: # Susequent buffer chop repeating 1st 6 ENF data
+        ENF = ENF[6:]
 
-    # Buffer 1st 62 seconds
-    buf_recording = proc2_buffer_next(fs, init_duration)
-    myrecording = np.array(buf_recording)
-    ENF_vector = []
-    count_loop = 0
+    # trim junk tailend
+    ENF = ENF[:real_data_lim]
+    ENF_vector = np.append(ENF_vector, ENF)
 
-    while (len(ENF_vector) < 1800):  # replace with True
-        print("###################################################################")
-        #print("Start Thread")
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            f1 = executor.submit(proc1_estimate_ENF, myrecording, fs, nfft, frame_size, overlap) #execute thread and send its parameters 
-            f2 = executor.submit(proc2_buffer_next, fs, duration)
-            
-            estimated_ENF = f1.result() # get return value from thread function
-            buf_recording = f2.result()
-        #print("Exit Thread")
-
-        #print(f'Estimate: {estimated_ENF}')
-        if (len(ENF_vector) == 0): #Append First 60 second
-            ENF_vector = np.array(estimated_ENF[:int(init_duration/frame_size)-1])
-        else:
-            ENF_vector = np.append(ENF_vector, estimated_ENF[-6:-3]) #append new seconds
-        #print(f'ENF: {ENF_vector}')
-        myrecording = np.append(myrecording, buf_recording) #append new 6 sec
-        myrecording = myrecording[(-init_duration*fs):] # keep last 62 seconds
-        #print(ENF_vector)
-        
-        count_loop += 1
+    #timestamp = time.strftime('%H_%M_%S', time.localtime())
+    #filename = f"recording_{timestamp}.csv"
+    #write_data(filename,ENF)
     
-    finish = time.perf_counter()
-    print(f"Finished in {round(finish-start,2)} seconds(s)")
+def main():
+    # set up the recording parameters
+    init_duration = 14
+    buffer_duration = 6 # in seconds
+    fs = 1000
+    frame_cnt = int(fs * buffer_duration)
+    device_name = 'Microphone (3- USB Audio Device'
 
-    write_data("PCB.csv", ENF_vector)
+    # Blocks the program until synchronized
+    sync_wait()
+
+    # Buffer 1st few seconds
+    init_rec(fs,init_duration,device_name)
+
+    # buffer stream
+    with sd.InputStream(device=device_name, callback=callback, channels=1,blocksize=frame_cnt, samplerate=fs):
+        while True:
+            pass
+    
+    #write_data("realtime_ENF.csv", ENF_vector)
 
 if __name__ == '__main__':
     main()
