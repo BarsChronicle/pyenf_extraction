@@ -6,10 +6,22 @@ import threading
 import pyenf
 import ntplib
 
+# Set up the recording parameters
+init_duration = 14
+buffer_duration = 6 # in seconds
+device_name = 'Microphone (3- USB Audio Device'
+
+# ENF function parameters
+fs = 1000
+nfft = 8192
+frame_size = 2
+overlap = 0
+
+# Recording buffers
 ENF_vector = []
 buffer = []
 
-def estimate_ENF(enf_signal, fs, nfft, frame_size, overlap):
+def estimate_ENF(enf_signal):
     enf_signal_object = pyenf.pyENF(signal0=enf_signal, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
                                     strip_index=0, frame_size_secs=frame_size, nfft=nfft, overlap_amount_secs=overlap)
     enf_spectro_strip, enf_frequency_support = enf_signal_object.compute_spectrogam_strips()
@@ -21,11 +33,11 @@ def estimate_ENF(enf_signal, fs, nfft, frame_size, overlap):
     ENF = np.array(ENF).T.flatten()
     return ENF
 
-def init_rec(fs, duration, device_name): #buffer audio
-    print(f"Enter recording: {duration} seconds")
+def init_rec(): #buffer audio
+    print(f"Enter recording: {init_duration} seconds")
     global buffer
     sd.default.device = device_name
-    buf_recording = sd.rec(int(duration * fs), samplerate=fs, channels=1) # buffer for the duration
+    buf_recording = sd.rec(int(init_duration * fs), samplerate=fs, channels=1) # buffer for the duration
 
     sd.wait()
     buf_recording = np.array(buf_recording).T.flatten() #resize to 1-D row vector 
@@ -33,7 +45,6 @@ def init_rec(fs, duration, device_name): #buffer audio
 
 def write_data(csv_filename, data): # write data to csv file
     counter = 0
-    #folderpath = "Junk_Data/"
     with open(csv_filename,'w') as file:
         for item in data:
             x = str(counter)+","+str(item)+"\n" # Counter, ENF value
@@ -44,8 +55,6 @@ def sync_wait():
     ntpc = ntplib.NTPClient()
     host = 'pool.ntp.org'
     UTC_ref = time.time()
-    
-    UTC_hour = 7
     UTC_min = 0
     UTC_sec = 0
 
@@ -80,8 +89,8 @@ def callback(indata, frames, time, status): # callback function to add recorded 
     global buffer
     buffer = np.append(buffer,indata.flatten()) # add new recording to buffer
 
-    if len(buffer) > 20000: # estimate from 20 secs recording
-        buffer = buffer[6000:] # chop off first 6 secs from previous buffer
+    if len(buffer) > ((init_duration+buffer_duration)*fs): # estimate from 20 secs recording
+        buffer = buffer[(buffer_duration*fs):] # chop off first 6 secs from previous buffer
         flag = 1
     else: # 1st buffer
         flag = 0
@@ -91,11 +100,7 @@ def callback(indata, frames, time, status): # callback function to add recorded 
 
 def process_recording(buffer,flag):  
     global ENF_vector
-    fs = 1000
-    nfft = 8192
-    frame_size = 2
-    overlap = 0
-    ENF = estimate_ENF(buffer, fs, nfft, frame_size, overlap)
+    ENF = estimate_ENF(buffer)
     
     # Following configurations only for frame_size=2
     real_data_lim = -3 
@@ -105,25 +110,21 @@ def process_recording(buffer,flag):
     # trim junk tailend
     ENF = ENF[:real_data_lim]
     ENF_vector = np.append(ENF_vector, ENF)
-
-    #timestamp = time.strftime('%H_%M_%S', time.localtime())
-    #filename = f"recording_{timestamp}.csv"
-    #write_data(filename,ENF)
-    
+    """
+    if (len(ENF_vector) >= 1800): 
+        timestamp = time.strftime('%H_%M_%S', time.localtime())
+        filename = f"Power_Recordings/recording_{timestamp}.csv"
+        write_data(filename,ENF_vector)
+        ENF_vector = ENF_vector[1800:] # push out ENF from the 1st hour
+    """
 def main():
-    # set up the recording parameters
-    init_duration = 14
-    buffer_duration = 6 # in seconds
-    fs = 1000
-    frame_cnt = int(fs * buffer_duration)
-    device_name = 'Microphone (3- USB Audio Device'
-
     # Blocks the program until synchronized
     sync_wait()
 
     # Buffer 1st few seconds
-    init_rec(fs,init_duration,device_name)
+    init_rec()
 
+    frame_cnt = int(fs * buffer_duration)
     # buffer stream
     with sd.InputStream(device=device_name, callback=callback, channels=1,blocksize=frame_cnt, samplerate=fs):
         while True:
