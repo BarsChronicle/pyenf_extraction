@@ -5,6 +5,8 @@ import datetime
 import threading
 import pyenf
 import ntplib
+import sys
+import os
 
 # Set up the recording parameters
 init_duration = 14
@@ -51,6 +53,12 @@ def write_data(csv_filename, data): # write data to csv file
             file.write(x)
             counter += 1
 
+def restart():
+    print("argv: ", sys.argv)
+    print("sys executable: ", sys.executable)
+    print("Restart now!")
+    os.execv(sys.executable, ['python'] + sys.argv)
+
 def sync_wait():
     ntpc = ntplib.NTPClient()
     host = 'pool.ntp.org'
@@ -70,6 +78,15 @@ def sync_wait():
             print(f'Synchronize at: {UTC_timestamp}')
             break
     
+    time_until_record = 60 - UTC_timestamp.minute
+    time_offset = 3
+
+    # Sleep some time, don't constantly use CPU resource for counting secs
+    if (time_until_record > time_offset): # when there are more than 3 minutes until recording session
+        print(f'Sleep {(time_until_record - time_offset)*60} secs')
+        time.sleep((time_until_record - time_offset)*60)
+        restart()
+
     start_time = time.time()
 
     ## Offset to synchronized timestamp
@@ -87,6 +104,10 @@ def sync_wait():
 
 def callback(indata, frames, time, status): # callback function to add recorded audio to a buffer and process that buffer
     global buffer
+
+    if status:
+        print(status)
+
     buffer = np.append(buffer,indata.flatten()) # add new recording to buffer
 
     if len(buffer) > ((init_duration+buffer_duration)*fs): # estimate from 20 secs recording
@@ -110,13 +131,18 @@ def process_recording(buffer,flag):
     # trim junk tailend
     ENF = ENF[:real_data_lim]
     ENF_vector = np.append(ENF_vector, ENF)
-    """
-    if (len(ENF_vector) >= 1800): 
-        timestamp = time.strftime('%H_%M_%S', time.localtime())
-        filename = f"Power_Recordings/recording_{timestamp}.csv"
-        write_data(filename,ENF_vector)
+    
+    if (len(ENF_vector) >= 1800):
+        export_ENF = ENF_vector
         ENF_vector = ENF_vector[1800:] # push out ENF from the 1st hour
-    """
+        threading.Thread(target=export_data,args=(export_ENF,)).start() # leave processing to thread
+        
+def export_data(data):
+    utc_now = datetime.datetime.now(datetime.timezone.utc) 
+    timestamp = utc_now.strftime("UTC_%H_%M_%S")
+    filename = f"Power_Recordings/recording_{timestamp}.csv"
+    write_data(filename,data)
+
 def main():
     # Blocks the program until synchronized
     sync_wait()
@@ -129,8 +155,6 @@ def main():
     with sd.InputStream(device=device_name, callback=callback, channels=1,blocksize=frame_cnt, samplerate=fs):
         while True:
             pass
-    
-    #write_data("realtime_ENF.csv", ENF_vector)
 
 if __name__ == '__main__':
     main()
