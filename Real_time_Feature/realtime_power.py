@@ -9,9 +9,9 @@ import sys
 import os
 
 # Set up the recording parameters
-init_duration = 14
-buffer_duration = 6 # in seconds
-device_name = 'Microphone (3- USB Audio Device'
+init_duration = 8
+buffer_duration = 12 # in seconds
+device_name = 1
 
 # ENF function parameters
 fs = 1000
@@ -19,9 +19,17 @@ nfft = 8192
 frame_size = 2
 overlap = 0
 
+# Output & Time sync parameter
+folderpath = 'ENF_Data' #change to absolute path of folder in computing hardware
+UTC_timestamp = ''
+
 # Recording buffers
 ENF_vector = []
 buffer = []
+
+# Define mutex
+mutex_ENF = threading.Lock()
+mutex_buf = threading.Lock()
 
 def estimate_ENF(enf_signal):
     enf_signal_object = pyenf.pyENF(signal0=enf_signal, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
@@ -62,6 +70,7 @@ def restart():
 def sync_wait():
     ntpc = ntplib.NTPClient()
     host = 'pool.ntp.org'
+    global UTC_timestamp
     UTC_ref = time.time()
     UTC_min = 0
     UTC_sec = 0
@@ -103,45 +112,56 @@ def sync_wait():
             break
 
 def callback(indata, frames, time, status): # callback function to add recorded audio to a buffer and process that buffer
-    global buffer
-
     if status:
         print(status)
 
+    mutex_buf.acquire()
+    global buffer
     buffer = np.append(buffer,indata.flatten()) # add new recording to buffer
 
     if len(buffer) > ((init_duration+buffer_duration)*fs): # estimate from 20 secs recording
-        buffer = buffer[(buffer_duration*fs):] # chop off first 6 secs from previous buffer
+        buffer = buffer[(buffer_duration*fs):] # chop off first 12 secs from previous buffer
         flag = 1
     else: # 1st buffer
         flag = 0
+    buf_rec = buffer
+    mutex_buf.release()
 
-    #print(f'size: {len(buffer)} buf1: {buffer}')
-    threading.Thread(target=process_recording,args=(buffer,flag)).start() # leave processing to thread
+    threading.Thread(target=process_recording,args=(buf_rec,flag)).start() # leave processing to thread
 
-def process_recording(buffer,flag):  
+def process_recording(buf_rec,flag):  
+    mutex_ENF.acquire()
     global ENF_vector
-    ENF = estimate_ENF(buffer)
-    
-    # Following configurations only for frame_size=2
+    ENF = estimate_ENF(buf_rec)
+    """
+    # Following configurations only for frame_size=2, buffer_sec=6
     real_data_lim = -3 
     if flag == 1: # Susequent buffer chop repeating 1st 6 ENF data
         ENF = ENF[6:]
-
+    """
+    # Following configurations only for frame_size=2, buffer_sec=12
+    real_data_lim = -3 
+    if flag == 1: # Susequent buffer chop repeating 1st 6 ENF data
+        ENF = ENF[3:]
+    
     # trim junk tailend
     ENF = ENF[:real_data_lim]
     ENF_vector = np.append(ENF_vector, ENF)
-    
+
     if (len(ENF_vector) >= 1800):
-        export_ENF = ENF_vector
+        export_ENF = ENF_vector[:1800]
         ENF_vector = ENF_vector[1800:] # push out ENF from the 1st hour
+        mutex_ENF.release()
         threading.Thread(target=export_data,args=(export_ENF,)).start() # leave processing to thread
-        
+    else:
+        mutex_ENF.release()
+
 def export_data(data):
-    utc_now = datetime.datetime.now(datetime.timezone.utc) 
-    timestamp = utc_now.strftime("UTC_%H_%M_%S")
-    filename = f"Power_Recordings/recording_{timestamp}.csv"
+    global UTC_timestamp
+    timestamp = UTC_timestamp.strftime('UTC_%Y_%m_%d_%H_%M_%S')
+    filename = f"Power_Recordings/{timestamp}.csv"
     write_data(filename,data)
+    UTC_timestamp = UTC_timestamp + datetime.timedelta(hours=1) # increment hour
 
 def main():
     # Blocks the program until synchronized
